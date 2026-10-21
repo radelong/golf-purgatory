@@ -102,6 +102,14 @@ button:focus-visible{outline:2px solid var(--halo);outline-offset:2px}
 .sc table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.85rem}
 .sc th,.sc td{border:1px solid var(--line);padding:4px 6px;text-align:center}
 .sc th{font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.courses{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:12px 0}
+.courses button{text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:9px 10px;cursor:pointer;line-height:1.25;display:flex;flex-direction:column;gap:4px}
+.courses button b{font-family:var(--display);font-size:.92rem;color:var(--text)}
+.courses button span{font-size:.7rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.courses button.on{border-color:var(--halo);box-shadow:inset 0 0 0 1px var(--halo)}
+.chip{align-self:flex-start;font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;border-radius:3px;padding:1px 6px;border:1px solid currentColor}
+.chip.easy{color:var(--sage)} .chip.medium{color:var(--halo)} .chip.hard{color:var(--alert)} .chip.luck{color:#c58cf0} .chip.orig{color:var(--dim)}
+.sc + .sc{margin-top:6px}
 .sc td.u{color:var(--sage);font-weight:700} .sc td.o{color:var(--alert);font-weight:700} .sc td.cur{background:rgba(241,210,138,.12)}
 
 @media (max-width:820px){
@@ -118,7 +126,7 @@ button:focus-visible{outline:2px solid var(--halo);outline-offset:2px}
 <body>
 <div class="app">
   <header class="hud">
-    <div class="brand">Golf Purgatory<small>FRONT NINE · PURGATORY PINES COUNTRY CLUB</small></div>
+    <div class="brand">Golf Purgatory<small id="course-sub">PURGATORY PINES · FRONT NINE</small></div>
     <dl class="stats">
       <div><dt>Hole</dt><dd id="h-hole">1 · Orientation</dd></div>
       <div><dt>Par</dt><dd id="h-par">4</dd></div>
@@ -181,7 +189,7 @@ button:focus-visible{outline:2px solid var(--halo);outline-offset:2px}
 (function(){
 "use strict";
 const HAS_DOM = typeof document !== "undefined";
-const SAVE_KEY = "golf-purgatory-v1";
+const SAVE_KEY = "golf-purgatory-v2-";
 
 /* ================= utilities ================= */
 function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
@@ -211,7 +219,8 @@ const LIE = {
   rough:{name:"Rough", mult:.82, spread:1.6, decel:24, rollMult:.35},
   sand:{name:"Bunker", mult:.55, spread:2.1, decel:70, rollMult:.05},
   green:{name:"Green", mult:1, spread:1, decel:4.5, rollMult:.8},
-  water:{name:"Water", decel:9}, lava:{name:"Lava", decel:9}, ob:{name:"Out of bounds", decel:9}
+  ice:{name:"Ice", mult:1, spread:1.25, decel:2.6, rollMult:2.4},
+  water:{name:"Water", decel:9}, lava:{name:"Lava", decel:9}, void:{name:"The abyss", decel:9}, ob:{name:"Out of bounds", decel:9}
 };
 
 /* ================= holes ================= */
@@ -224,7 +233,7 @@ function trees(seed, specs){
   }
   return out;
 }
-const HOLES = [
+const PINES = [
   { name:"Orientation", par:4, yards:360, bounds:[-70,70,-20,395], cup:[2,362],
     green:{x:0,y:360,rx:16,ry:14}, fairway:[{pts:[[0,22],[0,335]],w:44}],
     sand:[{x:-23,y:343,rx:8,ry:6,a:.3},{x:21,y:373,rx:7,ry:5,a:-.4}],
@@ -285,9 +294,213 @@ const HOLES = [
     slope:[.3,-.65], windMax:16, gusty:true, special:{type:"gate", x:0, y:548},
     intro:"Last hole. Narrow fairway, water left, and the wind up here takes orders from someone above my pay grade. The gate is behind the green. Get there." }
 ];
-const TOTAL_PAR = HOLES.reduce((a,h)=>a+h.par,0);
-const HCPS = [{h:0,label:"Scratch",note:"Par or better"},{h:9,label:"9",note:"+5 allowed"},{h:18,label:"18",note:"+9 allowed"},{h:28,label:"28",note:"+14 allowed"}];
-function allowance(h){ return Math.round(h/2); }
+/* ================= course generator ================= */
+const DIFF={
+  easy:{label:"Easy", len:{3:[140,175],4:[335,385],5:[470,510]}, fw:[44,52], dog:[.35,24], green:[14.5,17], fb:[0,1], gb:[1,3],
+    water:{lat:.2,cross:.06,front:.35,island:0,side:.1}, wgap:10, tree:{gap:[18,26],step:30,corner:4,outer:0}, margin:70, slope:[.45,.7], rslope:0, wind:8, gust:0, ice:0},
+  medium:{label:"Medium", len:{3:[150,188],4:[350,405],5:[480,525]}, fw:[36,42], dog:[.5,34], green:[14.5,17], fb:[1,2], gb:[2,3],
+    water:{lat:.35,cross:.18,front:.6,island:.05,side:.22}, wgap:0, tree:{gap:[10,16],step:22,corner:7,outer:.3}, margin:55, slope:[.55,.85], rslope:.08, wind:10, gust:.05, ice:0},
+  hard:{label:"Hard", len:{3:[170,212],4:[390,445],5:[520,565]}, fw:[28,33], dog:[.65,44], green:[11.5,14], fb:[2,3], gb:[2,4],
+    water:{lat:.55,cross:.32,front:.85,island:.15,side:.38}, wgap:0, tree:{gap:[4,9],step:16,corner:10,outer:.6}, margin:42, slope:[.7,1.0], rslope:.15, wind:13, gust:.2, ice:0},
+  luck:{label:"Good Luck", len:{3:[188,225],4:[410,458],5:[545,590]}, fw:[19,24], dog:[.75,52], green:[7.5,9.5], fb:[2,4], gb:[3,4],
+    water:{lat:.8,cross:.5,front:1,island:.6,side:.6}, wgap:-4, tree:{gap:[2,5],step:12,corner:12,outer:.8}, margin:30, slope:[.85,1.3], rslope:.45, wind:18, gust:.6, ice:.6}
+};
+function deepMerge(a,b){ const o=JSON.parse(JSON.stringify(a)); for(const k in (b||{})){ if(b[k]&&typeof b[k]==="object"&&!Array.isArray(b[k])) o[k]=Object.assign({},o[k],b[k]); else o[k]=b[k]; } return o; }
+const COURSE_DEFS=[
+  {id:"limbo", name:"Limbo Links", diff:"easy", seed:101, hz:"water", theme:"limbo",
+    pars:[4,4,3,4,5,3,4,4,5, 4,3,4,4,5,4,3,4,5],
+    intro:"Limbo Links. Nothing bad happens here. Nothing good happens either. Ideal for warming up your eternity.",
+    flavor:["Wide fairway. You could land a plane on it. Some have.","Nothing to see here. That's the whole point of Limbo.","It's beige. The hole is beige. Hit it anyway.","You could miss this fairway, but it would take talent."],
+    names:["The Lobby","Holding Pattern","Nothing Special","The Long Wait","Beige","Pending","Take a Number","Elevator Music","The Turn, Eventually","Paperwork","Lukewarm","Mild Inconvenience","Small Talk","Neither Here Nor There","On Hold","Almost Something","The Queue","Now Serving"]},
+  {id:"elysian", name:"Elysian Fields", diff:"easy", seed:202, hz:"water", theme:"elysian", tweak:{water:{front:.4,side:.12}, tree:{corner:4}},
+    pars:[4,5,3,4,4,3,5,4,4, 4,4,3,5,4,3,4,5,4],
+    intro:"Elysian Fields. The heroes' course. Soft greens, wide fairways, and the smug serenity of people who earned it.",
+    flavor:["The heroes play this one in their sleep. Literally. Eternal rest.","Gentle hole. The fairway practically apologizes for being there.","Achilles double-bogeyed this once. Don't tell him I told you.","Smells like honeysuckle and unearned confidence."],
+    names:["First Light","The Meadow","Honeysuckle","Laurel Walk","Nectar","The Orchard","Gentle Rise","Golden Hour","The Pavilion","Lyre","Olive Grove","Clover","The Fountain","Hero's Rest","Ambrosia","Long Afternoon","Halcyon","The Gates of Horn"]},
+  {id:"brimstone", name:"Brimstone Dunes", diff:"medium", seed:303, hz:"lava", theme:"brimstone", tweak:{fb:[2,3], gb:[2,4], green:[12.5,15], wgap:-3, fw:[33,39], water:{lat:.6,cross:.4,front:.8,side:.35}}, waste:.6,
+    pars:[4,4,3,5,4,3,4,4,5, 4,3,4,5,4,4,3,4,5],
+    intro:"Brimstone Dunes. Desert links, lava hazards, and a heat index that's frankly theological.",
+    flavor:["Everything that isn't fairway is sand. Everything that isn't sand is on fire.","The dunes shift overnight. The lava doesn't. Plan accordingly.","Dry heat. That's what they all say right before they melt.","Waste bunkers both sides. Waste being the operative word."],
+    names:["Preheat","Sulfur Springs","The Kiln","Ash Flats","Cinder Cone","Scorched Earth","Little Vesuvius","The Furnace Room","Hot Take","Mirage","Magma Mia","The Grill","Dry Heat","Ember Alley","Third Degree","The Smoldering","Firewalk","The Boiler"]},
+  {id:"waiting", name:"The Waiting Room Country Club", short:"Waiting Room CC", diff:"medium", seed:404, hz:"water", theme:"waiting", tweak:{water:{lat:.3,front:.6,side:.22}}, spec:{windmill:.22,cart:.2,lifeguard:true},
+    pars:[4,3,4,5,4,4,3,4,5, 4,4,3,5,4,3,4,4,5],
+    intro:"The Waiting Room Country Club. Ponds, windmills, ghost carts. Please take a number. Your tee time is now, roughly.",
+    flavor:["Classic parkland hole. Classic in the sense that it hasn't been mowed since 1962.","The magazines in the clubhouse are older than I am, and I'm dead.","Someone will call your name eventually. Hit the ball in the meantime.","The pond on this hole has a waiting list."],
+    names:["Sign In Here","Clipboard","Old Magazines","The Water Cooler","Mill Pond","Fluorescent","Ticket 404","The Fern","Brief Delay","Back Shortly","Second Windmill","Cart Return","Lost and Found","Courtesy Phone","The Pond Nobody Fixed","Complaint Box","Almost Your Turn","The Doctor Will See You Now"]},
+  {id:"styx", name:"Styx River Golf Club", short:"Styx River GC", diff:"hard", seed:505, hz:"water", theme:"styx", tweak:{water:{lat:.8,cross:.5,front:1,island:.25,side:.5}, fb:[1,2]}, spec:{lifeguard:true},
+    pars:[4,4,3,5,4,4,3,4,5, 4,3,4,5,4,4,3,4,5],
+    intro:"Styx River Golf Club. More water than golf course. The ferryman charges by the ball.",
+    flavor:["Water, water, everywhere, and every drop of it wants your ball.","The river winds through here. So will your score.","Charon's been fishing balls out of here for three thousand years. He's never bought a sleeve.","If you hear rowing, that's your ball being collected."],
+    names:["Ferry Toll","Charon's Landing","Undertow","The Crossing","Lethe Bend","Oarlock","Wet Feet","The Ferryman's Lunch","Drowned Hollow","Riverbed","Two Coins","Backwater","Sinking Feeling","The Shallows","Mudflat","Rapids","No Refunds","Far Shore"]},
+  {id:"cerberus", name:"Cerberus National", diff:"hard", seed:606, hz:"water", theme:"cerberus", tweak:{dog:[.85,45], tree:{gap:[5,10],step:15,corner:9,outer:.5}, water:{lat:.35,cross:.25,front:.7,island:.1,side:.3}}, spec:{windmill:.18,cart:.18,sword:true},
+    pars:[4,4,3,5,4,4,3,4,5, 4,3,4,5,4,4,3,4,5],
+    intro:"Cerberus National. Tight doglegs, tall trees, and a layout designed by a dog with three separate opinions.",
+    flavor:["The trees here are close enough to read your scorecard.","Every hole bends. None of them bend toward you.","Three heads, three opinions, one fairway. Pick a head and listen to it.","Good boy hole. Mostly. Don't make eye contact with the corner."],
+    names:["Good Boy","The Kennel","Three Heads","Leash Law","Fetch","Bone Yard","Hellhound Bend","Beware of Dog","Chew Toy","Dog Days","Howl","The Gatehouse","Teeth","Off Leash","Bark Worse Than Bite","The Dogleg Nobody Asked For","Sit. Stay.","Who's a Good Boy"]},
+  {id:"ninth", name:"The Ninth Circle", diff:"luck", seed:909, hz:"void", theme:"ninth", spec:{windmill:.3,cart:.3},
+    pars:[4,4,3,5,4,4,3,4,5, 4,3,4,5,4,4,3,4,5],
+    intro:"The Ninth Circle. Frozen fairways, greens the size of a doormat, a wind with a grudge, and the abyss on both sides. I've caddied here twice. I'm still dead from the first time.",
+    flavor:["Nobody has ever parred this hole. Nobody living, anyway. Nobody dead either, actually.","The abyss is patient. It has nothing but time, and so do you, apparently.","The cold isn't the worst part. The worst part is the hope.","Satan plays here off the black tees. He's a 31 handicap. Think about that."],
+    names:["Abandon Hope","Cocytus","Black Ice","Whiteout","Frostbite","The Pit","Glacier Mouth","Treachery","Frozen Tears","Antenora","The Long Fall","Ptolomea","Shiver","Judecca","The Wind That Hates You","Deep Freeze","Bottom of Everything","The Exit (Allegedly)"]}
+];
+function genHole(def, D, i){
+  const r=mulberry(def.seed*1000+i*37+11);
+  const R=(a,b)=>a+(b-a)*r(), RI=(a,b)=>Math.floor(a+(b-a+1)*r()), chance=p=>r()<p, side=()=>r()<.5?-1:1;
+  const par=def.pars[i], hz=def.hz, spec=def.spec||{};
+  const L=R(D.len[par][0],D.len[par][1]);
+  // route
+  const route=[[0,0]]; let dogDir=0, bend=null;
+  const deg=x=>x*Math.PI/180;
+  if(par===3){ const a=R(-.1,.1); route.push([Math.sin(a)*L, Math.cos(a)*L]); }
+  else if(par===4){
+    if(chance(D.dog[0])){ dogDir=side(); const L1=R(212,248), th=dogDir*deg(R(16,D.dog[1])); route.push([0,L1]); bend=[0,L1]; route.push([Math.sin(th)*(L-L1), L1+Math.cos(th)*(L-L1)]); }
+    else { const a=R(-.07,.07); route.push([Math.sin(a)*L, Math.cos(a)*L]); }
+  } else {
+    const L1=R(228,255), L2=R(170,205), L3=Math.max(70,L-L1-L2);
+    const t1=deg(chance(D.dog[0])?side()*R(10,D.dog[1]):R(-6,6));
+    let t2=t1+deg(chance(D.dog[0]*.7)?side()*R(10,D.dog[1]):R(-6,6)); t2=clamp(t2,deg(-68),deg(68));
+    route.push([0,L1]); const p2=[Math.sin(t1)*L2, L1+Math.cos(t1)*L2]; route.push(p2); route.push([p2[0]+Math.sin(t2)*L3, p2[1]+Math.cos(t2)*L3]);
+    if(Math.abs(t1)>deg(12)){ dogDir=Math.sign(t1); bend=[0,L1]; } else if(Math.abs(t2-t1)>deg(12)){ dogDir=Math.sign(t2-t1); bend=p2; }
+  }
+  // route helpers
+  const segs=[]; let tot=0;
+  for(let k=0;k<route.length-1;k++){ const a=route[k], b=route[k+1], l=dist(a[0],a[1],b[0],b[1]); segs.push({a,b,l,s0:tot,hd:Math.atan2(b[0]-a[0],b[1]-a[1])}); tot+=l; }
+  const at=s=>{ s=clamp(s,0,tot); for(const g of segs){ if(s<=g.s0+g.l||g===segs[segs.length-1]){ const t=(s-g.s0)/g.l; return {x:g.a[0]+(g.b[0]-g.a[0])*t, y:g.a[1]+(g.b[1]-g.a[1])*t, hd:g.hd}; } } };
+  const perp=hd=>({x:Math.cos(hd), y:-Math.sin(hd)}); // to the right of heading
+  const cut=(s0,s1)=>{ const pts=[]; const p0=at(s0); pts.push([p0.x,p0.y]); for(const g of segs){ const e=g.s0+g.l; if(e>s0&&e<s1) pts.push([g.b[0],g.b[1]]); } const p1=at(s1); pts.push([p1.x,p1.y]); return pts; };
+  const nearRoute=(x,y)=>{ let m=1e9; for(const g of segs) m=Math.min(m,segDist(x,y,g.a[0],g.a[1],g.b[0],g.b[1])); return m; };
+  // green & cup
+  const G=route[route.length-1], hdG=segs[segs.length-1].hd;
+  const grx=R(D.green[0],D.green[1]), gry=grx*R(.8,.95);
+  const green={x:G[0], y:G[1], rx:grx, ry:gry, a:-hdG};
+  const u=R(-.5,.5), v=R(-.5,.5), ca=Math.cos(green.a), sa=Math.sin(green.a);
+  const cup=[G[0]+u*grx*ca-v*gry*sa, G[1]+u*grx*sa+v*gry*ca];
+  const w=R(D.fw[0],D.fw[1]);
+  const water=[], sand=[], trees=[], specials=[], feats=[];
+  // water
+  const island = par!==5 && chance(D.water.island);
+  if(island){ water.push({x:G[0],y:G[1],rx:grx+R(12,18),ry:gry+R(12,18),a:green.a,kind:hz}); feats.push("island"); }
+  if(par===3 && !island && chance(D.water.front)){
+    const s=L*R(.45,.58), p=at(s), ry=Math.min(L*R(.17,.25), (L-gry-10)-s, s-24);
+    if(ry>10){ water.push({x:p.x,y:p.y,rx:R(30,48),ry,a:-p.hd,kind:hz}); feats.push("front"); }
+  }
+  if(par>3 && chance(D.water.cross)){
+    const s=R(182,208), p=at(s); water.push({x:p.x,y:p.y,rx:w*.8+R(8,16),ry:R(5,8),a:-p.hd,kind:hz}); feats.push("cross");
+  }
+  if(par===5 && chance(D.water.cross*.8)){
+    const s=tot-R(75,110), p=at(s); water.push({x:p.x,y:p.y,rx:w*.8+R(8,16),ry:R(5,8),a:-p.hd,kind:hz}); feats.push("cross2");
+  }
+  let latSide=0;
+  if(par>3 && chance(D.water.lat)){
+    const sg=segs[RI(0,segs.length-1)], sd=side(); latSide=sd; const mid=sg.s0+sg.l*R(.35,.65), p=at(Math.min(mid,tot-gry-30)), q=perp(p.hd);
+    const rx=R(9,16), ry=Math.min(R(40,90), sg.l*.45), off=w/2+rx*R(.6,1.0)+D.wgap;
+    water.push({x:p.x+q.x*sd*off, y:p.y+q.y*sd*off, rx, ry, a:-p.hd, kind:hz}); feats.push(sd>0?"latR":"latL");
+    if(D.water.lat>.7 && chance(.5)){ const p2=at(Math.min(mid+R(-40,40),tot-gry-30)); water.push({x:p2.x-q.x*sd*off, y:p2.y-q.y*sd*off, rx, ry:ry*R(.7,1), a:-p2.hd, kind:hz}); feats.push("latBoth"); }
+  }
+  if(!island && chance(D.water.side)){
+    const sd=side(), q=perp(hdG), off=Math.max(grx,gry)+R(9,15);
+    water.push({x:G[0]+q.x*sd*off, y:G[1]+q.y*sd*off, rx:R(8,13), ry:R(10,18), a:green.a, kind:hz}); feats.push("greenside");
+  }
+  // bunkers
+  if(par>3){ const n=RI(D.fb[0],D.fb[1]); for(let k=0;k<n;k++){ const s=R(212,268); if(s>tot-70) continue; const p=at(s), q=perp(p.hd), sd=side(), off=w/2+R(-3,4); sand.push({x:p.x+q.x*sd*off, y:p.y+q.y*sd*off, rx:R(6,10), ry:R(10,16), a:-p.hd}); } }
+  if(def.waste && par>3 && chance(def.waste)){ const s=R(120,tot-120), p=at(s), q=perp(p.hd), sd=side(); sand.push({x:p.x+q.x*sd*(w/2+R(12,18)), y:p.y+q.y*sd*(w/2+R(12,18)), rx:R(12,18), ry:R(30,55), a:-p.hd}); feats.push("waste"); }
+  { const n=RI(D.gb[0],D.gb[1]); const used=[]; for(let k=0;k<n;k++){ let phi; let tries=0; do{ phi=hdG+deg(R(-160,160)); tries++; }while(tries<8 && used.some(o=>Math.abs(o-phi)<.9)); used.push(phi);
+      const rr=Math.max(grx,gry)+R(3,6), bx=G[0]+Math.sin(phi)*rr, by=G[1]+Math.cos(phi)*rr, b={x:bx,y:by,rx:R(5,8.5),ry:R(3.5,6),a:-phi};
+      if(dist(bx,by,cup[0],cup[1])>Math.max(b.rx,b.ry)+2 && !water.some(wt=>inEllipse(wt,bx,by))) sand.push(b); } }
+  // fairway
+  const fairway=[];
+  if(par===3){ fairway.push({pts:[[0,8],[0,Math.min(32,L*.2)]],w:26}); if(D.label==="Easy"&&!feats.includes("front")) fairway.push({pts:cut(L*.55,L-gry-2),w:w*.7}); }
+  else { const endGap = island ? Math.max(water[0].rx,water[0].ry)+5 : R(4,12); fairway.push({pts:cut(22,tot-gry-endGap),w}); }
+  // bounds
+  let x0=0,x1=0,y1=0; for(const p of route){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+  const m=D.margin*R(.85,1.15);
+  const bounds=[Math.min(x0-m, G[0]-grx-26), Math.max(x1+m, G[0]+grx+26), -20, y1+gry+30];
+  for(const wt of water){ bounds[0]=Math.min(bounds[0],wt.x-wt.rx-6); bounds[1]=Math.max(bounds[1],wt.x+wt.rx+6); }
+  // trees
+  const okTree=(x,y,rad)=>{
+    if(x<bounds[0]+2||x>bounds[1]-2||y<bounds[2]+2||y>bounds[3]-2) return false;
+    if(nearRoute(x,y)<w/2+rad+1) return false;
+    if(dist(x,y,G[0],G[1])<Math.max(grx,gry)+rad+5) return false;
+    if(y<16&&Math.abs(x)<14) return false;
+    for(const wt of water) if(inEllipse({x:wt.x,y:wt.y,rx:wt.rx+rad,ry:wt.ry+rad,a:wt.a},x,y)) return false;
+    for(const sd of sand) if(inEllipse({x:sd.x,y:sd.y,rx:sd.rx+rad*.6,ry:sd.ry+rad*.6,a:sd.a},x,y)) return false;
+    return true; };
+  for(let s=34; s<tot-gry-10; s+=D.tree.step*R(.8,1.2)){
+    const p=at(s), q=perp(p.hd);
+    for(const sd of [-1,1]){
+      const rad=R(4.5,7), off=w/2+R(D.tree.gap[0],D.tree.gap[1])+rad;
+      const tx=p.x+q.x*sd*off, ty=p.y+q.y*sd*off; if(okTree(tx,ty,rad)) trees.push([tx,ty,rad,18]);
+      if(chance(D.tree.outer)){ const o2=off+R(10,16), r2=R(4.5,7); const ux=p.x+q.x*sd*o2+R(-4,4), uy=p.y+q.y*sd*o2+R(-4,4); if(okTree(ux,uy,r2)) trees.push([ux,uy,r2,18]); }
+    }
+  }
+  if(bend && dogDir){
+    const sg=segs[0], q=perp(sg.hd);
+    const cx=bend[0]+q.x*dogDir*(w/2+R(14,24))-Math.sin(sg.hd)*R(10,30), cy=bend[1]+q.y*dogDir*(w/2+R(14,24))-Math.cos(sg.hd)*R(10,30);
+    for(let k=0;k<D.tree.corner;k++){ const ang=r()*Math.PI*2, rr=Math.sqrt(r())*22, rad=R(5,8); const tx=cx+Math.cos(ang)*rr, ty=cy+Math.sin(ang)*rr; if(okTree(tx,ty,rad)) trees.push([tx,ty,rad,18]); }
+    feats.push(dogDir>0?"dogR":"dogL");
+    if(spec.sword) specials.push({type:"sword", x:cx, y:cy});
+  }
+  // specials
+  if(par>3 && segs[0].l>=232 && spec.windmill && chance(spec.windmill)){ const p=at(R(200,228)); specials.push({type:"windmill", x:p.x, y:p.y, r:12, base:4.5, h:24, speed:R(1.1,1.8)}); feats.push("windmill"); }
+  else if(par>3 && spec.cart && chance(spec.cart)){ const y=R(232,262); specials.push({type:"cart", y, x0:bounds[0]+6, x1:bounds[1]-6, w:12, d:7, speed:R(14,20)}); feats.push("cart"); }
+  if(spec.lifeguard && hz==="water" && water.length){ const wt=water[0]; specials.push({type:"lifeguard", x:wt.x+wt.rx+6, y:wt.y}); }
+  if(i===17) specials.push({type:"gate", x:G[0], y:G[1]+gry+16});
+  const ice = chance(D.ice);
+  if(ice) feats.push("ice");
+  const gusty=chance(D.gust); if(gusty) feats.push("gusty");
+  if(w<26) feats.push("tight"); if(grx<10) feats.push("tiny");
+  const slope = chance(D.rslope) ? "random" : (()=>{ const a=r()*Math.PI*2, mg=R(D.slope[0],D.slope[1]); return [Math.cos(a)*mg, Math.sin(a)*mg]; })();
+  if(slope==="random") feats.push("rslope");
+  const yards=Math.round(tot);
+  const name=def.names[i];
+  return {name, par, yards, bounds, cup, green, fairway, sand, water, trees, slope, windMax:Math.round(D.wind*R(.8,1.15)), gusty, specials, ice, route:route.map(p=>[p[0],p[1]]), feats,
+    intro:holeIntro(def,i,name,par,yards,feats,hz, specials)};
+}
+const FEAT_LINES={
+  island:["Island green. There's grass, and then there isn't. Aim for the grass.","The green is on an island. Your ball is not a boat."],
+  front:["All carry over the hazard. No pressure. Some pressure. A lot of pressure, actually.","Forced carry. The hazard has been waiting all morning for you."],
+  cross:["There's a hazard across the fairway about two hundred out. It's there to test your commitment. It usually wins.","Creek crossing the landing zone. Lay up or send it. Both are mistakes, in different ways."],
+  cross2:["Another hazard in front of the green. Because one wasn't enough for the architect."],
+  latL:["Hazard down the left. It's patient.","Trouble left. Your hook knows the way."],
+  latR:["Hazard down the right. Your slice has been there before.","Trouble right. It's where balls go to think about what they've done."],
+  latBoth:["Hazards on both sides. Pick a lane and pray to it."],
+  greenside:["There's a hazard hugging the green. It hugs too hard."],
+  dogL:["Dogleg left. The fairway turns. You, historically, do not.","Bends left. Cut the corner if you trust the trees. Nobody trusts the trees."],
+  dogR:["Dogleg right. Aim at the corner, not at the dream.","Bends right. Your slice finally has a purpose."],
+  windmill:["Windmill in the landing zone. Still unionized. Still petty."],
+  cart:["Ghost cart crosses the fairway out there. It does not yield to the living, or to anyone."],
+  waste:["Big waste bunker off the fairway. It's not a hazard, technically. It's a lifestyle."],
+  ice:["The fairway is ice. The ball will keep going long after you've stopped caring."],
+  gusty:["The wind changes every shot here. It's not personal. It's policy."],
+  tight:["Fairway's narrower than your margin for error."],
+  tiny:["The green is the size of a parking space. A compact parking space."],
+  rslope:["This green changes its slope between putts. Read it fast."]
+};
+const HZ_LINE={lava:"The bright orange stuff is lava. Penalty stroke, and a smell you won't forget.", void:"The black stuff is the abyss. Balls don't come back from it. Neither does confidence."};
+function holeIntro(def,i,name,par,yards,feats,hz){
+  const rr=mulberry(def.seed*7+i*13);
+  const p=a=>a[Math.floor(rr()*a.length)];
+  let s=`Hole ${i+1}, ${name}. Par ${par}, ${yards} yards. `;
+  const pri=["island","front","windmill","cart","ice","latBoth","cross","dogL","dogR","latL","latR","cross2","greenside","waste","tiny","rslope","gusty","tight"];
+  if(i===0){ const f1=pri.find(f=>feats.includes(f)); return [def.intro, s.trim(), HZ_LINE[hz], f1?p(FEAT_LINES[f1]):""].filter(Boolean).join(" "); }
+  const got=pri.filter(f=>feats.includes(f)).slice(0,2);
+  if(!got.length) return s+p(def.flavor);
+  return s+got.map(f=>p(FEAT_LINES[f])).join(" ");
+}
+function buildCourse(def){
+  const D=deepMerge(DIFF[def.diff], def.tweak);
+  D.label=DIFF[def.diff].label;
+  const holes=[]; for(let i=0;i<18;i++) holes.push(genHole(def,D,i));
+  return {id:def.id, name:def.name, short:def.short||def.name, diff:def.diff, diffLabel:D.label, theme:def.theme, holes};
+}
+
+const COURSES=[{id:"pines", name:"Purgatory Pines", short:"Purgatory Pines", diff:"orig", diffLabel:"Original nine", theme:"pines", holes:PINES}].concat(COURSE_DEFS.map(buildCourse));
+let HOLES=PINES, TOTAL_PAR=0, COURSE=COURSES[0], THEME_READY=false;
+function setCourse(id){ COURSE=COURSES.find(c=>c.id===id)||COURSES[0]; HOLES=COURSE.holes; TOTAL_PAR=HOLES.reduce((a,x)=>a+x.par,0); if(HAS_DOM && THEME_READY) applyTheme(); }
+setCourse("pines");
+const HCPS = [{h:0,label:"Scratch"},{h:9,label:"9"},{h:18,label:"18"},{h:28,label:"28"}];
+function allowance(h){ return HOLES.length>=18 ? h : Math.round(h/2); }
+function isHaz(t){ return t==="water"||t==="lava"||t==="void"; }
 
 /* ================= Dale ================= */
 const LINES = {
@@ -318,6 +531,8 @@ const LINES = {
   bogey:["Bogey. It happens. It happens to you a lot, but it happens.","Bogey. The afterlife is long. So was that hole."],
   double:["Double bogey. I've seen worse. I've caddied for worse. I'm not saying who.","Double. Shake it off. You have no body. Shake it off anyway."],
   worse:["That's a number. That's definitely a number.","We'll call it a learning experience. Mostly for me."],
+  void:["Into the abyss. Penalty stroke. It didn't even make a sound.","The abyss took it. The abyss takes everything eventually. Penalty stroke.","Gone into the dark. Drop one and don't look down."],
+  ice:["On the ice. It's still sliding somewhere in your heart.","Ice. The ball stopped. Eventually. Reluctantly."],
   pickup:"Ten strokes. Even purgatory has a limit. Pick it up.",
   mulligan:"Mulligan. Technically you should confess something first. I'll count the swing as a confession.",
   nomull:"No mulligans left. You used it. I remember. I remember everything.",
@@ -327,7 +542,18 @@ const LINES = {
 /* ================= state ================= */
 let S = null;
 function newRound(hcp){
-  S = { hcp, hole:0, scores:[], over:false, mull:1, time:0, phase:"title", toast:null };
+  S = { hcp, hole:0, scores:[], over:false, mull:1, time:0, phase:"title", toast:null, course:COURSE.id };
+}
+function SPS(){ const h=H(); return h.specials || (h.special?[h.special]:[]); }
+function routeSamples(h){ if(h._rs) return h._rs; const pts=[]; for(let k=0;k<h.route.length-1;k++){ const a=h.route[k], b=h.route[k+1], l=dist(a[0],a[1],b[0],b[1]), n=Math.max(1,Math.ceil(l/4)); for(let j=0;j<n;j++){ const t=j/n; pts.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]); } } pts.push(h.cup); h._rs=pts; return pts; }
+function aimTarget(carry){
+  const h=H(), c=h.cup;
+  if(!h.route) return (S.firstShot&&h.aim)?h.aim:c;
+  if(carry*1.04>=toPin()) return c;
+  const rs=routeSamples(h); let bi=0,bd=1e9;
+  rs.forEach((p,i)=>{ const d=dist(p[0],p[1],S.ball.x,S.ball.y); if(d<bd){ bd=d; bi=i; } });
+  for(let i=bi;i<rs.length;i++){ if(dist(rs[i][0],rs[i][1],S.ball.x,S.ball.y)>=carry*.97) return rs[i]; }
+  return c;
 }
 function H(){ return HOLES[S.hole]; }
 function startHole(i){
@@ -352,6 +578,7 @@ function newWind(first){
 function terrainAt(x,y){
   const h=H(), b=h.bounds;
   if(x<b[0]||x>b[1]||y<b[2]||y>b[3]) return "ob";
+  if(h.ice){ if(inEllipse(h.green,x,y)) return "green"; for(const s of h.sand) if(inEllipse(s,x,y)) return "sand"; for(const w of h.water) if(inEllipse(w,x,y)) return w.kind; if(x>-6&&x<6&&y>-2&&y<7) return "tee"; for(const f of h.fairway) if(inCapsule(f,x,y)) return "ice"; return "rough"; }
   if(inEllipse(h.green,x,y)) return "green";
   for(const s of h.sand) if(inEllipse(s,x,y)) return "sand";
   for(const w of h.water) if(inEllipse(w,x,y)) return w.kind;
@@ -373,7 +600,8 @@ function autoSetup(){
     if(lie!=="tee" && d<4) S.club=7;
   }
   S.viewPutt = lie==="green";
-  const tgt = (S.firstShot && h.aim) ? h.aim : h.cup;
+  const ck=CLUBS[S.club]; let Lm=LIE[lie].mult||1; if(lie==="sand"&&ck.id==="SW") Lm=.85; if(ck.id==="DR"&&lie!=="tee") Lm*=.85;
+  const tgt = ck.putter ? h.cup : aimTarget(ck.carry*Lm);
   S.aim = Math.atan2(tgt[0]-S.ball.x, tgt[1]-S.ball.y);
 }
 function say(t){ S.caddie=t; if(HAS_DOM) ui.caddie.textContent=t; }
@@ -442,13 +670,13 @@ function cartX(sp, time){
   return {x:sp.x0+q, dirRight:p<span};
 }
 function cartHit(x,y){
-  const sp=H().special; if(!sp||sp.type!=="cart") return false;
-  const c=cartX(sp,S.time);
-  return Math.abs(x-c.x)<sp.w/2 && Math.abs(y-sp.y)<sp.d/2;
+  for(const sp of SPS()){ if(sp.type!=="cart") continue; const c=cartX(sp,S.time); if(Math.abs(x-c.x)<sp.w/2 && Math.abs(y-sp.y)<sp.d/2) return sp; }
+  return null;
 }
-function carried(){
-  const sp=H().special, c=cartX(sp,S.time);
-  S.ball={x: c.dirRight ? sp.x1+6 : sp.x0-6, y:sp.y};
+function carried(sp){
+  const c=cartX(sp,S.time);
+  const cands=[{x: c.dirRight ? sp.x1+6 : sp.x0-6, y:sp.y},{x: c.dirRight ? sp.x1-4 : sp.x0+4, y:sp.y},{x:c.x, y:sp.y+sp.d},{x:c.x, y:sp.y-sp.d},{...S.prev}];
+  S.ball=cands.find(q=>{ const t=terrainAt(q.x,q.y); return !isHaz(t)&&t!=="ob"; })||{...S.prev};
   toast("BOO","warn"); say(pick(LINES.cart));
   settle(true);
 }
@@ -471,10 +699,11 @@ function updateFlight(dt){
     for(const tr of h.trees){
       if(p.h<tr[3] && dist(p.x,p.y,tr[0],tr[1])<tr[2]){ return treeHit(p,f,t); }
     }
-    const sp=h.special;
-    if(sp && sp.type==="windmill" && p.h<sp.h && dist(p.x,p.y,sp.x,sp.y)<sp.r){
-      const when=f.start+t*f.D;
-      if(dist(p.x,p.y,sp.x,sp.y)<sp.base || windmillBlocking(sp,when)){ return windmillHit(p,f); }
+    for(const sp of SPS()){
+      if(sp.type==="windmill" && p.h<sp.h && dist(p.x,p.y,sp.x,sp.y)<sp.r){
+        const when=f.start+t*f.D;
+        if(dist(p.x,p.y,sp.x,sp.y)<sp.base || windmillBlocking(sp,when)){ return windmillHit(p,f); }
+      }
     }
     if(i===steps) { S.ballH=p.h; S.ball={x:p.x,y:p.y}; }
   }
@@ -487,7 +716,7 @@ function treeHit(p,f){
   S.ball={x:p.x+Math.sin(a)*back, y:p.y+Math.cos(a)*back};
   toast("THWACK","warn"); say(pick(LINES.tree));
   const t=terrainAt(S.ball.x,S.ball.y);
-  if(t==="water"||t==="lava") return hazard(t, f);
+  if(isHaz(t)) return hazard(t, f);
   if(t==="ob") return outOfBounds();
   settle(true);
 }
@@ -501,9 +730,9 @@ function land(f){
   S.ballH=0; S.flight=null;
   const t=terrainAt(S.ball.x,S.ball.y), c=H().cup;
   if(dist(S.ball.x,S.ball.y,c[0],c[1])<.45) return holed();
-  if(t==="water"||t==="lava") return hazard(t,f);
+  if(isHaz(t)) return hazard(t,f);
   if(t==="ob") return outOfBounds();
-  if(cartHit(S.ball.x,S.ball.y)) return carried();
+  { const cs=cartHit(S.ball.x,S.ball.y); if(cs) return carried(cs); }
   const club=f.club;
   const rd=f.carry*club.roll*(LIE[t].rollMult||1);
   const dec=LIE[t].decel, v0=Math.sqrt(2*dec*Math.max(rd,0));
@@ -515,7 +744,7 @@ function land(f){
 function updateRoll(dt){
   const r=S.roll, h=H(), c=h.cup;
   const t=terrainAt(S.ball.x,S.ball.y);
-  if(t!=="water"&&t!=="lava"&&t!=="ob") S.lastSafe={...S.ball};
+  if(!isHaz(t)&&t!=="ob") S.lastSafe={...S.ball};
   const sp=Math.hypot(r.vx,r.vy);
   const dec=(LIE[t]&&LIE[t].decel)||9;
   let nsp=sp-dec*dt;
@@ -531,15 +760,15 @@ function updateRoll(dt){
     if(dc<.11 && nsp<4.5 && !r.lipped){ r.lipped=true; const a=(rng()<.5?1:-1)*(.6+rng()*.6), ca=Math.cos(a), sa=Math.sin(a); const vx=r.vx*ca-r.vy*sa, vy=r.vx*sa+r.vy*ca; r.vx=vx*.55; r.vy=vy*.55; toast("LIP OUT","warn"); }
   }
   S.ball={x:nx,y:ny};
-  const sp3=h.special;
-  if(sp3 && sp3.type==="windmill"){
-    const d=dist(nx,ny,sp3.x,sp3.y);
-    if(d<sp3.base){ const ux=(nx-sp3.x)/d, uy=(ny-sp3.y)/d, dot=r.vx*ux+r.vy*uy; r.vx=(r.vx-2*dot*ux)*.5; r.vy=(r.vy-2*dot*uy)*.5; S.ball={x:sp3.x+ux*(sp3.base+.1), y:sp3.y+uy*(sp3.base+.1)}; }
+  for(const sp3 of SPS()){
+    if(sp3.type!=="windmill") continue;
+    const d=dist(S.ball.x,S.ball.y,sp3.x,sp3.y);
+    if(d<sp3.base && d>0){ const ux=(S.ball.x-sp3.x)/d, uy=(S.ball.y-sp3.y)/d, dot=r.vx*ux+r.vy*uy; r.vx=(r.vx-2*dot*ux)*.5; r.vy=(r.vy-2*dot*uy)*.5; S.ball={x:sp3.x+ux*(sp3.base+.1), y:sp3.y+uy*(sp3.base+.1)}; }
   }
   const nt=terrainAt(S.ball.x,S.ball.y);
-  if(nt==="water"||nt==="lava"){ S.roll=null; return hazard(nt,null); }
+  if(isHaz(nt)){ S.roll=null; return hazard(nt,null); }
   if(nt==="ob"){ S.roll=null; return outOfBounds(); }
-  if(cartHit(S.ball.x,S.ball.y)){ S.roll=null; return carried(); }
+  { const cs=cartHit(S.ball.x,S.ball.y); if(cs){ S.roll=null; return carried(cs); } }
 }
 function finishRoll(){
   const r=S.roll; S.roll=null;
@@ -557,6 +786,7 @@ function finishRoll(){
     else if(t==="green") say(d<2?pick(LINES.close):pick(LINES.green));
     else if(t==="fairway") say(ls&&ls.perfect?pick(LINES.perfect):pick(LINES.fairway));
     else if(t==="sand") say(pick(LINES.sand));
+    else if(t==="ice") say(pick(LINES.ice));
     else if(t==="rough") say(pick(LINES.rough));
   }
   settle(false);
@@ -576,8 +806,8 @@ function hazard(kind, f){
   }
   if(terrainAt(p.x,p.y)===kind || terrainAt(p.x,p.y)==="ob") p={...S.prev};
   S.strokes++;
-  toast(kind==="lava"?"VAPORIZED":"SPLASH","bad");
-  if(H().special && H().special.type==="lifeguard" && kind==="water"){
+  toast(kind==="lava"?"VAPORIZED":kind==="void"?"INTO THE ABYSS":"SPLASH","bad");
+  if(SPS().some(s=>s.type==="lifeguard") && kind==="water"){
     say(pick(["The lifeguard blows his whistle. \"That's a penalty stroke and a lifestyle choice.\"","The lifeguard shouts: \"Did you take lessons, or did someone teach you that on purpose?\"","The lifeguard doesn't even get up. \"I've seen better swims from a bag of hammers.\" Penalty stroke."]));
   } else say(pick(LINES[kind]));
   S.ball=p;
@@ -591,10 +821,11 @@ function outOfBounds(){
   settle(true);
 }
 function settle(quiet){
+  { const t0=terrainAt(S.ball.x,S.ball.y); if(isHaz(t0)||t0==="ob") S.ball={...S.prev}; }
   S.firstShot = S.firstShot && dist(S.ball.x,S.ball.y,0,3)<.01;
   if(S.strokes>=10){ say(LINES.pickup); return endHole(10); }
   const h=H();
-  if(h.special && h.special.type==="windmill"){
+  if(SPS().some(s=>s.type==="windmill")){
     const was=S.strike; S.strike = S.shotNo%3===2;
     if(S.strike && !was) say(S.caddie+" "+LINES.strikeOn);
     if(!S.strike && was) say(S.caddie+" "+LINES.strikeOff);
@@ -647,13 +878,16 @@ function roundTotals(){
   return {strokes, par, toPar:strokes-par};
 }
 function fmtToPar(n){ return n===0?"E":(n>0?"+"+n:""+n); }
-function saveProgress(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({hcp:S.hcp, scores:S.scores, mull:S.mull})); }catch(e){} }
-function loadProgress(){ try{ const r=localStorage.getItem(SAVE_KEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
-function clearProgress(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+function saveProgress(){ try{ localStorage.setItem(SAVE_KEY+COURSE.id, JSON.stringify({hcp:S.hcp, scores:S.scores, mull:S.mull})); localStorage.setItem(SAVE_KEY+"last", COURSE.id); }catch(e){} }
+function loadProgress(id){ try{ const r=localStorage.getItem(SAVE_KEY+(id||COURSE.id)); return r?JSON.parse(r):null; }catch(e){ return null; } }
+function clearProgress(){ try{ localStorage.removeItem(SAVE_KEY+COURSE.id); }catch(e){} }
+function bestKey(){ return SAVE_KEY+"best-"+COURSE.id; }
+function getBest(id){ try{ const v=localStorage.getItem(SAVE_KEY+"best-"+id); return v?+v:null; }catch(e){ return null; } }
+function setBest(n){ try{ const b=getBest(COURSE.id); if(b==null||n<b) localStorage.setItem(bestKey(), String(n)); }catch(e){} }
 
 /* ================= headless export ================= */
 if(!HAS_DOM){
-  globalThis.__golf={HOLES,CLUBS,newRound,startHole,swingPress,executeShot,update,terrainAt,toPin,lieAt,mulligan,state:()=>S,setRng:f=>{rng=f;}};
+  globalThis.__golf={get HOLES(){return HOLES;},COURSES,setCourse,CLUBS,LIE,newRound,startHole,swingPress,executeShot,update,terrainAt,toPin,lieAt,mulligan,aimTarget,state:()=>S,setRng:f=>{rng=f;}};
   return;
 }
 
@@ -706,20 +940,33 @@ function setWorld(){ const m=cam.m; ctx.setTransform(m[0]*DPR,m[1]*DPR,m[2]*DPR,
 function setScreen(){ ctx.setTransform(DPR,0,0,DPR,0,0); }
 function ellipsePath(e,grow){ ctx.beginPath(); ctx.ellipse(e.x,e.y,e.rx+(grow||0),e.ry+(grow||0),e.a||0,0,Math.PI*2); }
 
-const COL={void:"#120f17", rough:"#4c6745", rough2:"#45603f", fair:"#8fae7c", fair2:"#9cba89", tee:"#a7c793", fringe:"#a3c788", green:"#bcdba0",
-  sand:"#e7ddc4", sandEdge:"#c9bd9f", water:"#2b5662", water2:"#3f7480", lava:"#b8401c", lava2:"#f08a3a", tree:"#2b4834", tree2:"#3b5e44", shadow:"rgba(0,0,0,.28)"};
+const BASECOL={void:"#120f17", rough:"#4c6745", rough2:"#45603f", fair:"#8fae7c", fair2:"#9cba89", tee:"#a7c793", fringe:"#a3c788", green:"#bcdba0",
+  sand:"#e7ddc4", sandEdge:"#c9bd9f", water:"#2b5662", water2:"#3f7480", lava:"#b8401c", lava2:"#f08a3a", abyss:"#05050a", abyss2:"#3b2a5a", ice:"#d4e6f1", ice2:"#f2f8fc", tree:"#2b4834", tree2:"#3b5e44", shadow:"rgba(0,0,0,.28)"};
+const THEMES={
+  pines:{},
+  limbo:{rough:"#5a6858", rough2:"#536151", fair:"#a1b198", fair2:"#afbea6", green:"#c5d4b6", fringe:"#b0c2a0", tee:"#b4c4a6", tree:"#3e4c3f", tree2:"#4d5d4e", water:"#46616b", water2:"#5d7b85"},
+  elysian:{rough:"#3d7838", rough2:"#366e38", fair:"#86c06a", fair2:"#9ad07e", green:"#b6e49c", fringe:"#a0d786", tee:"#a8d690", tree:"#2b582b", tree2:"#3e7a3c", water:"#2d6c84", water2:"#4a91a8"},
+  brimstone:{rough:"#6a4a33", rough2:"#5d412d", fair:"#a98b5c", fair2:"#b89a69", green:"#a8b670", fringe:"#98a464", tee:"#b39a6a", sand:"#e4c99a", sandEdge:"#c4a675", tree:"#3d2e21", tree2:"#57402c"},
+  waiting:{rough:"#4f6d48", rough2:"#48653f", fair:"#93b37f", fair2:"#a0c08c", green:"#bedca2", fringe:"#a7c98b"},
+  styx:{rough:"#35504a", rough2:"#2f483f", fair:"#7c9c84", fair2:"#8aab92", green:"#a9cbb0", fringe:"#97bba0", tee:"#93b39a", water:"#1d4853", water2:"#336a77", tree:"#21372e", tree2:"#2e493c"},
+  cerberus:{rough:"#2e4a2a", rough2:"#294226", fair:"#6f9a5e", fair2:"#7ea96c", green:"#a2c98a", fringe:"#8fba78", tee:"#8db67a", tree:"#1a2f1f", tree2:"#26412a"},
+  ninth:{rough:"#9cadbd", rough2:"#91a3b4", fair:"#b8c8d3", fair2:"#c9d7e0", green:"#a5c3b7", fringe:"#95b4aa", tee:"#c2d3de", sand:"#eef2f5", sandEdge:"#cbd5de", tree:"#36475a", tree2:"#4d6178", shadow:"rgba(20,30,50,.25)"}
+};
+let COL=Object.assign({},BASECOL);
+function applyTheme(){ COL=Object.assign({},BASECOL,THEMES[COURSE.theme]||{}); speckHole=-1; const sub=document.getElementById("course-sub"); if(sub) sub.textContent=(COURSE.short+" · "+(HOLES.length===18?"18 HOLES · ":"FRONT NINE · ")+COURSE.diffLabel).toUpperCase(); }
 let speckles=[], speckHole=-1;
+THEME_READY=true; applyTheme();
 function makeSpeckles(){
-  const h=H(), b=h.bounds, r=mulberry(1000+S.hole), n=Math.round((b[1]-b[0])*(b[3]-b[2])/45);
+  const h=H(), b=h.bounds, r=mulberry(1000+S.hole), n=Math.min(9000,Math.round((b[1]-b[0])*(b[3]-b[2])/45));
   speckles=[]; for(let i=0;i<n;i++) speckles.push([b[0]+r()*(b[1]-b[0]), b[2]+r()*(b[3]-b[2])]);
-  speckHole=S.hole;
+  speckHole=COURSE.id+S.hole;
 }
 
 function draw(){
   setScreen();
   ctx.fillStyle=COL.void; ctx.fillRect(0,0,W,Hh);
   if(!S || S.hole==null || S.phase==="title"){ drawFog(); return; }
-  if(speckHole!==S.hole) makeSpeckles();
+  if(speckHole!==COURSE.id+S.hole) makeSpeckles();
   cam=makeCam();
   const h=H(), b=h.bounds;
   setWorld();
@@ -730,22 +977,22 @@ function draw(){
   // fairways
   ctx.lineCap="round"; ctx.lineJoin="round";
   for(const f of h.fairway){
-    ctx.strokeStyle=COL.fair; ctx.lineWidth=f.w; ctx.beginPath(); f.pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
-    ctx.strokeStyle=COL.fair2; ctx.lineWidth=f.w*.55; ctx.globalAlpha=.35; ctx.stroke(); ctx.globalAlpha=1;
+    ctx.strokeStyle=h.ice?COL.ice:COL.fair; ctx.lineWidth=f.w; ctx.beginPath(); f.pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+    ctx.strokeStyle=h.ice?COL.ice2:COL.fair2; ctx.lineWidth=f.w*(h.ice?.25:.55); ctx.globalAlpha=h.ice?.6:.35; ctx.stroke(); ctx.globalAlpha=1;
   }
   // tee
   ctx.fillStyle=COL.tee; ctx.fillRect(-6,-2,12,9);
   // cart path
-  const sp=h.special;
-  if(sp && sp.type==="cart"){ ctx.strokeStyle="rgba(210,205,220,.35)"; ctx.lineWidth=2.4; ctx.setLineDash([3,2.5]); ctx.beginPath(); ctx.moveTo(b[0],sp.y); ctx.lineTo(b[1],sp.y); ctx.stroke(); ctx.setLineDash([]); }
+  const sps=SPS();
+  for(const sp of sps) if(sp.type==="cart"){ ctx.strokeStyle="rgba(210,205,220,.35)"; ctx.lineWidth=2.4; ctx.setLineDash([3,2.5]); ctx.beginPath(); ctx.moveTo(b[0],sp.y); ctx.lineTo(b[1],sp.y); ctx.stroke(); ctx.setLineDash([]); }
   // water / lava
   for(const w of h.water){
-    const lava=w.kind==="lava";
-    ellipsePath(w,1.2); ctx.fillStyle=lava?"#5a2a1a":"#3b5a46"; ctx.fill();
-    ellipsePath(w); ctx.fillStyle=lava?COL.lava:COL.water; ctx.fill();
+    const lava=w.kind==="lava", vd=w.kind==="void";
+    ellipsePath(w,1.2); ctx.fillStyle=lava?"#5a2a1a":vd?"#2a2438":"#3b5a46"; ctx.fill();
+    ellipsePath(w); ctx.fillStyle=lava?COL.lava:vd?COL.abyss:COL.water; ctx.fill();
     ctx.save(); ellipsePath(w); ctx.clip();
-    ctx.strokeStyle=lava?COL.lava2:COL.water2; ctx.lineWidth=lava?1.4:.8; ctx.globalAlpha=lava?.55:.5;
-    for(let k=0;k<7;k++){ const ph=(S.time*(lava?.25:.12)+k/7)%1; ctx.beginPath(); ctx.ellipse(w.x,w.y,w.rx*ph,w.ry*ph,w.a||0,0,Math.PI*2); ctx.stroke(); }
+    ctx.strokeStyle=lava?COL.lava2:vd?COL.abyss2:COL.water2; ctx.lineWidth=lava?1.4:.8; ctx.globalAlpha=lava?.55:vd?.6:.5;
+    for(let k=0;k<7;k++){ const ph=vd?1-((S.time*.08+k/7)%1):(S.time*(lava?.25:.12)+k/7)%1; ctx.beginPath(); ctx.ellipse(w.x,w.y,w.rx*ph,w.ry*ph,w.a||0,0,Math.PI*2); ctx.stroke(); }
     ctx.restore(); ctx.globalAlpha=1;
   }
   // sand
@@ -755,14 +1002,11 @@ function draw(){
   ellipsePath(h.green); ctx.fillStyle=COL.green; ctx.fill();
   if(cam.putting) drawSlope(h);
   // specials (ground)
-  if(sp && sp.type==="lifeguard") drawLifeguard(sp);
-  if(sp && sp.type==="gate") drawGate(sp);
+  for(const sp of sps){ if(sp.type==="lifeguard") drawLifeguard(sp); if(sp.type==="gate") drawGate(sp); }
   // trees
   for(const t of h.trees){ ctx.fillStyle=COL.shadow; ctx.beginPath(); ctx.arc(t[0]+t[2]*.35,t[1]-t[2]*.35,t[2],0,Math.PI*2); ctx.fill(); }
   for(const t of h.trees){ ctx.fillStyle=COL.tree; ctx.beginPath(); ctx.arc(t[0],t[1],t[2],0,Math.PI*2); ctx.fill(); ctx.fillStyle=COL.tree2; ctx.beginPath(); ctx.arc(t[0]-t[2]*.25,t[1]+t[2]*.25,t[2]*.55,0,Math.PI*2); ctx.fill(); }
-  if(sp && sp.type==="windmill") drawWindmill(sp);
-  if(sp && sp.type==="sword") drawSword(sp);
-  if(sp && sp.type==="cart") drawCart(sp);
+  for(const sp of sps){ if(sp.type==="windmill") drawWindmill(sp); else if(sp.type==="sword") drawSword(sp); else if(sp.type==="cart") drawCart(sp); }
   // aim
   if(S.phase==="aim"||S.phase==="meter") drawAim();
   // trail
@@ -793,15 +1037,15 @@ function drawAim(){
   if(club.putter) len=Math.min(toPin(), puttMax())*1.0;
   else { let L=LIE[lie].mult; if(lie==="sand"&&club.id==="SW") L=.85; if(club.id==="DR"&&lie!=="tee") L*=.85; len=club.carry*L; }
   if(S.phase==="meter"){ const m=S.meter; const pw=m.stage===1?Math.max(0,m.v):m.power;
-    if(!club.putter){ const fx=S.ball.x+dx*len, fy=S.ball.y+dy*len; ctx.strokeStyle="rgba(241,210,138,.3)"; ctx.lineWidth=1.2/cam.s; ctx.beginPath(); ctx.arc(fx,fy,Math.max(3,len*.045),0,Math.PI*2); ctx.stroke(); }
+    if(!club.putter){ const fx=S.ball.x+dx*len, fy=S.ball.y+dy*len; ctx.strokeStyle="rgba(0,0,0,.35)"; ctx.lineWidth=1.2/cam.s; ctx.beginPath(); ctx.arc(fx,fy,Math.max(3,len*.045),0,Math.PI*2); ctx.stroke(); }
     len*=club.putter?pw*puttMax()/Math.max(len,.01):pw; }
   const ex=S.ball.x+dx*len, ey=S.ball.y+dy*len;
-  ctx.strokeStyle="rgba(241,210,138,.85)"; ctx.lineWidth=1.6/cam.s; ctx.setLineDash([4/cam.s*2,3/cam.s*2]);
+  ctx.strokeStyle="#000000"; ctx.lineWidth=1.8/cam.s; ctx.setLineDash([4/cam.s*2,3/cam.s*2]);
   ctx.beginPath(); ctx.moveTo(S.ball.x,S.ball.y); ctx.lineTo(ex,ey); ctx.stroke(); ctx.setLineDash([]);
   if(!club.putter){
     const rr=Math.max(3,len*.045);
     ctx.beginPath(); ctx.arc(ex,ey,rr,0,Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(ex,ey,Math.max(.4,1.5/cam.s),0,Math.PI*2); ctx.fillStyle="rgba(241,210,138,.9)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex,ey,Math.max(.4,1.5/cam.s),0,Math.PI*2); ctx.fillStyle="#000000"; ctx.fill();
   }
 }
 function drawSlope(h){
@@ -880,11 +1124,12 @@ function yardText(d){ if(onPuttingTerms() || d<12){ return Math.max(1,Math.round
 function refreshUI(){
   if(!S || S.hole==null) return;
   const h=H(), tot=roundTotals();
-  ui.hole.textContent=(S.hole+1)+" · "+h.name;
+  ui.hole.textContent=(S.hole+1)+"/"+HOLES.length+" · "+h.name;
   ui.par.textContent=h.par; ui.yds.textContent=h.yards;
   ui.stroke.textContent=S.phase==="holeEnd"?S.scores[S.hole]:(S.strokes+1);
   ui.round.textContent=fmtToPar(tot.toPar); ui.round.className=tot.toPar<0?"good":tot.toPar>allowance(S.hcp)?"bad":"";
   ui.target.textContent=(TOTAL_PAR+allowance(S.hcp))+" or less";
+  ui.round.title="Par "+TOTAL_PAR;
   ui.lie.textContent=LIE[lieAt()]?LIE[lieAt()].name:"—";
   ui.pin.textContent=yardText(toPin());
   ui.wind.textContent=S.wind.mph+" mph";
@@ -911,27 +1156,41 @@ function refreshUI(){
 
 /* ================= overlays ================= */
 function scorecard(cur){
-  let r1="<tr><th>Hole</th>", r2="<tr><th>Par</th>", r3="<tr><th>You</th>";
-  HOLES.forEach((h,i)=>{ const s=S.scores[i]; const c=i===cur?" cur":""; r1+="<th class='"+c+"'>"+(i+1)+"</th>"; r2+="<td class='"+c+"'>"+h.par+"</td>"; r3+="<td class='"+(s==null?"":s<h.par?"u":s>h.par?"o":"")+c+"'>"+(s==null?"":s)+"</td>"; });
-  const t=roundTotals();
-  r1+="<th>Out</th></tr>"; r2+="<td>"+TOTAL_PAR+"</td></tr>"; r3+="<td>"+(t.strokes||"")+"</td></tr>";
-  return "<div class='sc'><table>"+r1+r2+r3+"</table></div>";
+  const half=(from,to,label,withTotal)=>{
+    let r1="<tr><th>Hole</th>", r2="<tr><th>Par</th>", r3="<tr><th>You</th>", ps=0, ss=0, any=false;
+    for(let i=from;i<to;i++){ const h=HOLES[i], s=S.scores[i], c=i===cur?" cur":""; ps+=h.par; if(s!=null){ ss+=s; any=true; }
+      r1+="<th class='"+c+"'>"+(i+1)+"</th>"; r2+="<td class='"+c+"'>"+h.par+"</td>"; r3+="<td class='"+(s==null?"":s<h.par?"u":s>h.par?"o":"")+c+"'>"+(s==null?"":s)+"</td>"; }
+    r1+="<th>"+label+"</th>"; r2+="<td>"+ps+"</td>"; r3+="<td>"+(any?ss:"")+"</td>";
+    if(withTotal){ const t=roundTotals(); r1+="<th>Tot</th>"; r2+="<td>"+TOTAL_PAR+"</td>"; r3+="<td>"+(t.strokes||"")+"</td>"; }
+    return "<div class='sc'><table>"+r1+"</tr>"+r2+"</tr>"+r3+"</tr></table></div>";
+  };
+  if(HOLES.length<=9) return half(0,HOLES.length,"Out",false);
+  return half(0,9,"Out",false)+half(9,18,"In",true);
 }
 function overlay(html){ ui.overlay.innerHTML="<div class='sheet'>"+html+"</div>"; ui.overlay.hidden=false; const b=ui.overlay.querySelector(".swing"); if(b) b.focus({preventScroll:true}); }
 function closeOverlay(){ ui.overlay.hidden=true; ui.overlay.innerHTML=""; }
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
 let chosenHcp=9;
+let chosenCourse=(()=>{ try{ return localStorage.getItem(SAVE_KEY+"last")||"pines"; }catch(e){ return "pines"; } })();
+const COURSE_BLURB={pines:"The original front nine. Lifeguard, windmill, ghost cart, the Gate.",limbo:"Wide, gentle, forgiving. Nothing happens here.",elysian:"Lush parkland for heroes. A few ponds, soft greens.",brimstone:"Desert links. Waste bunkers and lava.",waiting:"Parkland with ponds, windmills and ghost carts.",styx:"Water on nearly every hole. Island greens.",cerberus:"Doglegs through tight, tall trees.",ninth:"Ice fairways, tiny greens, the abyss, gale winds. Good luck."};
 function showTitle(){
+  setCourse(chosenCourse);
   const saved=loadProgress();
   const resumable = saved && saved.scores && saved.scores.length>0 && saved.scores.length<HOLES.length;
+  const cards=COURSES.map(c=>{ const par=c.holes.reduce((a,x)=>a+x.par,0), yd=c.holes.reduce((a,x)=>a+x.yards,0), best=getBest(c.id);
+    return "<button type='button' data-c='"+c.id+"' class='"+(c.id===COURSE.id?"on":"")+"'><span class='chip "+c.diff+"'>"+esc(c.diffLabel)+"</span><b>"+esc(c.short)+"</b><span>"+c.holes.length+" holes · par "+par+" · "+yd.toLocaleString()+" yd"+(best?" · best "+best:"")+"</span></button>"; }).join("");
+  const par=TOTAL_PAR;
   overlay(
-    "<p class='eyebrow'>Purgatory Pines · Front Nine</p><h2>Golf Purgatory</h2>"+
-    "<p>You died mid-backswing. The afterlife has a policy: finish the front nine at your handicap and you move on. Miss it and you play it again. And again.</p>"+
+    "<p class='eyebrow'>The Afterlife Golf Association</p><h2>Golf Purgatory</h2>"+
+    "<p>You died mid-backswing. The afterlife has a policy: shoot your handicap on one of its courses and you move on. Miss it and you play it again. And again.</p>"+
+    "<div class='courses' id='courses'>"+cards+"</div>"+
+    "<p style='font-size:.85rem;color:var(--dim);margin:0'>"+esc(COURSE_BLURB[COURSE.id]||"")+"</p>"+
     "<p class='quote'>\"Declare your handicap. Lying is a sin, and we already have your file.\" · Dale, your caddie</p>"+
-    "<div class='hcp' id='hcp'>"+HCPS.map(o=>"<button type='button' data-h='"+o.h+"' class='"+(o.h===chosenHcp?"on":"")+"'><b>"+o.label+"</b><span>"+o.note+"</span></button>").join("")+"</div>"+
-    "<p style='font-size:.85rem;color:var(--dim)'>Target: <b id='tgt' style='color:var(--text)'>"+(TOTAL_PAR+allowance(chosenHcp))+"</b> strokes or fewer on a par "+TOTAL_PAR+". Aim by clicking the course. Swing is three beats: start, set power, then stop the marker in the gold zone.</p>"+
+    "<div class='hcp' id='hcp'>"+HCPS.map(o=>"<button type='button' data-h='"+o.h+"' class='"+(o.h===chosenHcp?"on":"")+"'><b>"+o.label+"</b><span>"+(o.h? "+"+allowance(o.h)+" allowed":"Par or better")+"</span></button>").join("")+"</div>"+
+    "<p style='font-size:.85rem;color:var(--dim)'>Target on "+esc(COURSE.short)+": <b id='tgt' style='color:var(--text)'>"+(par+allowance(chosenHcp))+"</b> strokes or fewer on a par "+par+". Aim by clicking the course. Swing is three beats: start, set power, then stop the marker in the gold zone.</p>"+
     "<div class='row'><button class='swing' type='button' id='go'>Tee Off</button>"+(resumable?"<button class='ghost' type='button' id='resume'>Resume at hole "+(saved.scores.length+1)+"</button>":"")+"</div>"
   );
+  ui.overlay.querySelectorAll("#courses button").forEach(b=>b.addEventListener("click",()=>{ chosenCourse=b.dataset.c; showTitle(); }));
   ui.overlay.querySelectorAll("#hcp button").forEach(b=>b.addEventListener("click",()=>{ chosenHcp=+b.dataset.h; ui.overlay.querySelectorAll("#hcp button").forEach(x=>x.classList.toggle("on",x===b)); $("tgt").textContent=TOTAL_PAR+allowance(chosenHcp); }));
   $("go").addEventListener("click",()=>{ clearProgress(); newRound(chosenHcp); closeOverlay(); startHole(0); refreshUI(); });
   const r=$("resume"); if(r) r.addEventListener("click",()=>{ newRound(saved.hcp); S.scores=saved.scores; S.mull=saved.mull??1; closeOverlay(); startHole(saved.scores.length); refreshUI(); });
@@ -951,19 +1210,23 @@ function showVerdict(){
   S.phase="roundEnd"; clearProgress();
   const t=roundTotals(), target=TOTAL_PAR+allowance(S.hcp), diff=t.strokes-target;
   let title, body;
-  if(t.toPar<0){ title="Membership Offered"; body="You shot "+t.strokes+", under par in the afterlife. St. Peter offers you a membership. You decline. The dues are eternal. You float through the gate on a golf cart that, for once, isn't haunted."; }
-  else if(diff<=0){ title="Ascended"; body="You shot "+t.strokes+", inside your number of "+target+". The gate behind the ninth green swings open. Dale hands you your putter. \"Keep it,\" he says. \"I'll be here. I'm always here.\""; }
+  const lastG=HOLES.length===18?"eighteenth":"ninth";
+  setBest(t.strokes);
+  if(COURSE.diff==="luck" && diff<=0){ title="Management Is Reviewing the Footage"; body="You shot "+t.strokes+" on the Ninth Circle and beat your number of "+target+". Nobody has done that. Dale drops the bag. Somewhere far below, something very large and very cold stops chewing and asks to see the scorecard. The gate opens before you reach it."; }
+  else if(t.toPar<0){ title="Membership Offered"; body="You shot "+t.strokes+", under par in the afterlife. St. Peter offers you a membership. You decline. The dues are eternal. You float through the gate on a golf cart that, for once, isn't haunted."; }
+  else if(diff<=0){ title="Ascended"; body="You shot "+t.strokes+", inside your number of "+target+". The gate behind the "+lastG+" green swings open. Dale hands you your putter. \"Keep it,\" he says. \"I'll be here. I'm always here.\""; }
+  else if(COURSE.diff==="luck"){ title="As Expected"; body="You shot "+t.strokes+" against a target of "+target+" on the Ninth Circle. Dale pats your shoulder. \"Nobody makes it out of here. That's the brochure, word for word.\" The ice creaks agreeably."; }
   else if(diff<=3){ title="So Close It's Insulting"; body="You shot "+t.strokes+". Your number was "+target+". Missed by "+diff+". The gate opens a crack, a voice says \"Nope,\" and it shuts. Back to the first tee."; }
   else { title="See You on the First Tee"; body="You shot "+t.strokes+" against a target of "+target+". The gate doesn't even look up. Dale is already walking back to the first tee. \"Same time tomorrow,\" he says. \"Same time every day.\""; }
   overlay("<p class='eyebrow'>The Verdict · declared handicap "+(S.hcp||"scratch")+"</p><h2>"+title+"</h2><p>"+body+"</p>"+scorecard(-1)+
-    "<div class='row'><button class='swing' type='button' id='again'>Play the nine again</button><button class='ghost' type='button' id='title'>Change handicap</button></div>");
+    "<div class='row'><button class='swing' type='button' id='again'>Play "+esc(COURSE.short)+" again</button><button class='ghost' type='button' id='title'>Choose another course</button></div>");
   $("again").addEventListener("click",()=>{ const h=S.hcp; newRound(h); closeOverlay(); startHole(0); refreshUI(); });
   $("title").addEventListener("click",()=>{ S.phase="title"; showTitle(); });
 }
 function toggleCard(){
   if(!S || S.phase==="title") return;
   if(!ui.overlay.hidden){ if(ui.overlay.dataset.card){ delete ui.overlay.dataset.card; closeOverlay(); } return; }
-  overlay("<p class='eyebrow'>Scorecard</p><h2>Front Nine</h2>"+scorecard(S.hole)+"<p style='color:var(--dim);font-size:.85rem'>Target: "+(TOTAL_PAR+allowance(S.hcp))+" or less. Current: "+fmtToPar(roundTotals().toPar)+" through "+S.scores.filter(x=>x!=null).length+".</p><div class='row'><button class='swing' type='button' id='closec'>Back to it</button></div>");
+  overlay("<p class='eyebrow'>Scorecard · "+esc(COURSE.short)+"</p><h2>"+(HOLES.length===18?"Eighteen Holes":"Front Nine")+"</h2>"+scorecard(S.hole)+"<p style='color:var(--dim);font-size:.85rem'>Target: "+(TOTAL_PAR+allowance(S.hcp))+" or less. Current: "+fmtToPar(roundTotals().toPar)+" through "+S.scores.filter(x=>x!=null).length+".</p><div class='row'><button class='swing' type='button' id='closec'>Back to it</button></div>");
   ui.overlay.dataset.card="1";
   $("closec").addEventListener("click",()=>{ delete ui.overlay.dataset.card; closeOverlay(); });
 }
@@ -1002,7 +1265,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 function boot(data){
-  if(data && data.S && data.S.hole!=null){ S=data.S; if(S.phase==="flight"||S.phase==="roll"||S.phase==="meter"){ S.phase="aim"; S.flight=null; S.roll=null; S.ballH=0; } if(S.phase==="holeEnd") showHoleEnd(); else if(S.phase==="roundEnd") showVerdict(); else if(S.phase==="title") showTitle(); say(S.caddie||""); }
+  if(data && data.S && data.S.hole!=null){ S=data.S; setCourse(S.course||"pines"); if(S.phase==="flight"||S.phase==="roll"||S.phase==="meter"){ S.phase="aim"; S.flight=null; S.roll=null; S.ballH=0; } if(S.phase==="holeEnd") showHoleEnd(); else if(S.phase==="roundEnd") showVerdict(); else if(S.phase==="title") showTitle(); say(S.caddie||""); }
   else { newRound(9); S.hole=null; showTitle(); say("Declare your handicap and tee off. I'll be here. I'm always here."); }
   requestAnimationFrame(frame);
 }

@@ -20,7 +20,24 @@ Open `index.html` in any modern browser. One file, no install, no build step. Fo
 | M | Mulligan (one per round) |
 | Enter | Continue on result screens |
 
-## The front nine
+## Courses
+
+Pick a course on the title screen. Each keeps its own resume save and best score.
+
+| Course | Difficulty | Holes | Par | Character |
+|--------|------------|-------|-----|-----------|
+| Purgatory Pines | Original | 9 | 36 | The hand-built front nine (see below) |
+| Limbo Links | Easy | 18 | 72 | Wide and forgiving. Nothing happens here. |
+| Elysian Fields | Easy | 18 | 72 | Lush parkland, a few ponds, soft greens |
+| Brimstone Dunes | Medium | 18 | 72 | Desert links with waste bunkers and lava |
+| The Waiting Room Country Club | Medium | 18 | 72 | Ponds, windmills, ghost carts, a heckling lifeguard |
+| Styx River Golf Club | Hard | 18 | 72 | Water on nearly every hole, island greens |
+| Cerberus National | Hard | 18 | 72 | Doglegs through tight, tall trees |
+| The Ninth Circle | Good Luck | 18 | 72 | Ice fairways, the abyss, tiny greens, gale-force gusts. Close to impossible. |
+
+The 18-hole courses are built by a seeded generator with a hand-tuned profile per course (lengths, fairway width, doglegs, hazard types and placement, trees, green size and slope, wind, specials), so every hole is the same each time you play.
+
+### Purgatory Pines (front nine)
 
 | # | Hole | Par | Yards | Gimmick |
 |---|------|-----|-------|---------|
@@ -39,6 +56,7 @@ Open `index.html` in any modern browser. One file, no install, no build step. Fo
 - Water and lava: one-stroke penalty, drop on the line of entry.
 - Out of bounds: stroke and distance.
 - Maximum 10 strokes per hole.
-- Target score: par 36 plus half your declared handicap (Scratch 36, 9 → 41, 18 → 45, 28 → 50).
+- Target score: par plus your declared handicap on 18-hole courses, or plus half your handicap on the 9-hole original (Scratch, 9, 18, 28).
+- Terrain: fairway, rough, bunkers, green, ice (slides much farther), water, lava and the abyss (all one-stroke penalty hazards).
 
-Progress saves to the browser's localStorage after each hole, so you can resume a round.
+Progress saves to the browser's localStorage after each hole, so you can resume a round on any course.
